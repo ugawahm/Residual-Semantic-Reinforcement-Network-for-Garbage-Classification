@@ -8,7 +8,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 from prettytable import PrettyTable
 
-from VCRNet_CBAM_1_19 import resnext50_32x4d
+from model import vcrnet50
 
 
 class ConfusionMatrix(object):
@@ -52,10 +52,6 @@ class ConfusionMatrix(object):
 
     def plot(self):
         matrix = self.matrix
-        # for i in range(12):
-        #     for j in range(12):
-        #         matrix[i, j] = round(matrix[i, j] / self.total[i]*100, 4)
-        # print(matrix)
         plt.imshow(matrix, cmap=plt.cm.Blues)
 
         # 设置x轴坐标label
@@ -64,9 +60,6 @@ class ConfusionMatrix(object):
         plt.yticks(range(self.num_classes), self.labels)
         # 显示colorbar
         plt.colorbar()
-        # plt.xlabel('True Labels')
-        # plt.ylabel('Predicted Labels')
-        # plt.title('Confusion matrix')
         plt.xlabel('真实标签')
         plt.ylabel('预测标签')
         plt.title('混淆矩阵')
@@ -75,14 +68,13 @@ class ConfusionMatrix(object):
         thresh = matrix.max() / 2
         for x in range(self.num_classes):
             for y in range(self.num_classes):
-                # 注意这里的matrix[y, x]不是matrix[x, y]
                 info = int(matrix[y, x])
                 plt.text(x, y, info,
                          verticalalignment='center',
                          horizontalalignment='center',
                          color="white" if info > thresh else "black")
         plt.tight_layout()
-        plt.savefig('./results/confusionmatrix120910.png', dpi=300)
+        plt.savefig('./results/confusionmatrix.png', dpi=300)
         plt.show()
 
 
@@ -96,7 +88,7 @@ if __name__ == '__main__':
                                          transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])])
 
     data_root = os.path.abspath(os.path.join(os.getcwd(), "../.."))  # get data root path
-    image_path = os.path.join(data_root, "PycharmProjects", "laji12", "garbage_classification")  # flower data set path
+    image_path = os.path.join(data_root, "PycharmProjects", "garbage_classification")  # flower data set path
     assert os.path.exists(image_path), "data path {} does not exist.".format(image_path)
 
     validate_dataset = datasets.ImageFolder(root=os.path.join(image_path, "val"),
@@ -106,9 +98,9 @@ if __name__ == '__main__':
     validate_loader = torch.utils.data.DataLoader(validate_dataset,
                                                   batch_size=batch_size, shuffle=False,
                                                   num_workers=2)
-    net = resnext50_32x4d(num_classes=12)
+    net = vcrnet50(num_classes=12)
     # load pretrain weights
-    model_weight_path = "./weight_document/vcr_0318_12.pth"
+    model_weight_path = "./weight_document/vcrnet.pth"
     assert os.path.exists(model_weight_path), "cannot find {} file".format(model_weight_path)
     net.load_state_dict(torch.load(model_weight_path, map_location=device))
     net.to(device)
