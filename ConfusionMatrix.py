@@ -8,7 +8,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 from prettytable import PrettyTable
 
-from model import vcrnet50
+from model import resinet
 
 
 class ConfusionMatrix(object):
@@ -88,7 +88,7 @@ if __name__ == '__main__':
                                          transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])])
 
     data_root = os.path.abspath(os.path.join(os.getcwd(), "../.."))  # get data root path
-    image_path = os.path.join(data_root, "PycharmProjects", "garbage_classification")  # flower data set path
+    image_path = os.path.join(data_root, "PycharmProjects", "garbage_classification") 
     assert os.path.exists(image_path), "data path {} does not exist.".format(image_path)
 
     validate_dataset = datasets.ImageFolder(root=os.path.join(image_path, "val"),
@@ -98,9 +98,9 @@ if __name__ == '__main__':
     validate_loader = torch.utils.data.DataLoader(validate_dataset,
                                                   batch_size=batch_size, shuffle=False,
                                                   num_workers=2)
-    net = vcrnet50(num_classes=12)
+    net = resinet(num_classes=12)
     # load pretrain weights
-    model_weight_path = "./weight_document/vcrnet.pth"
+    model_weight_path = "./weight_document/resinet.pth"
     assert os.path.exists(model_weight_path), "cannot find {} file".format(model_weight_path)
     net.load_state_dict(torch.load(model_weight_path, map_location=device))
     net.to(device)
