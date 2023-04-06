@@ -11,7 +11,7 @@ from matplotlib import pyplot as plt
 
 from torchvision import transforms, datasets
 from tqdm import tqdm
-from model import vcrnet50
+from model import resinet
 matplotlib.use('TkAgg')
 
 
@@ -21,8 +21,6 @@ def main():
 
     data_transform = {
         "train": transforms.Compose([
-                                    transforms.RandomRotation(30, expand=False, center=None, fill=None),
-                                    # 随机旋转
                                     transforms.RandomResizedCrop(224),
                                     transforms.RandomHorizontalFlip(),
                                     transforms.ToTensor(),
@@ -65,7 +63,7 @@ def main():
                                                                            val_num))
 
 
-    net = vcrnet50(num_classes=12) 
+    net = resinet(num_classes=12) 
 
     net.to(device)
     # define loss function
@@ -81,7 +79,7 @@ def main():
 
     epochs = 150
     best_acc = 0.0
-    save_path = 'weight_document/vcrnet.pth'
+    save_path = 'weight_document/resinet.pth'
     train_steps = len(train_loader)
     val_steps = len(validate_loader)
     for epoch in range(epochs):
@@ -145,15 +143,11 @@ def main():
     plt.figure(figsize=(19.2, 10))
     plt.subplot(2, 1, 1)
     plt.plot(x1, y1, '.-')
-    # plt.title('Val accuracy vs. epochs')
-    # plt.ylabel('Val accuracy')
     plt.title('验证集准确率和损失曲线')
     plt.ylabel('验证准确率')
     plt.xlabel('迭代次数')
     plt.subplot(2, 1, 2)
     plt.plot(x2, y2, '.-')
-    # plt.xlabel('Val loss vs. epochs')
-    # plt.ylabel('Val loss')
     plt.xlabel('迭代次数')
     plt.ylabel('验证损失')
     plt.savefig('./results/1.png', dpi=300)
