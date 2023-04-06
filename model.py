@@ -3,6 +3,43 @@ import torch
 import math
 
 
+class CBAMLayer(nn.Module):
+    def __init__(self, channel, reduction=16, spatial_kernel=7):
+        super(CBAMLayer, self).__init__()
+
+        # channel attention 压缩H,W为1
+        self.max_pool = nn.AdaptiveMaxPool2d(1)
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+
+        # shared MLP
+        self.mlp = nn.Sequential(
+            # Conv2d比Linear方便操作
+            # nn.Linear(channel, channel // reduction, bias=False)
+            nn.Conv2d(channel, channel // reduction, 1, bias=False),
+
+            nn.ReLU(inplace=True),
+            # nn.Linear(channel // reduction, channel,bias=False)
+            nn.Conv2d(channel // reduction, channel, 1, bias=False)
+        )
+
+        # spatial attention
+        self.conv = nn.Conv2d(2, 1, kernel_size=spatial_kernel,
+                              padding=spatial_kernel // 2, bias=False)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        max_out = self.mlp(self.max_pool(x))
+        avg_out = self.mlp(self.avg_pool(x))
+        channel_out = self.sigmoid(max_out + avg_out)
+        x = channel_out * x
+
+        max_out, _ = torch.max(x, dim=1, keepdim=True)
+        avg_out = torch.mean(x, dim=1, keepdim=True)
+        spatial_out = self.sigmoid(self.conv(torch.cat([max_out, avg_out], dim=1)))
+        x = spatial_out * x
+        return x
+
+
 class VCRNet(nn.Module):
 
     def __init__(self, d=2048, c=32, p=64, p_=4):
@@ -71,29 +108,29 @@ class VCRNet(nn.Module):
         key = key.view(key.size(0), key.size(1), key.size(2) * key.size(3))
         key = torch.chunk(key, c, dim=1)
         key = list(key)
-        Zc_ = Zc.view(Zc.size(0), Zc.size(1), Zc.size(2) * Zc.size(3))   
+        Zc_ = Zc.view(Zc.size(0), Zc.size(1), Zc.size(2) * Zc.size(3))
         Zc_ = torch.chunk(Zc_, c, dim=1)
         Zc_ = list(Zc_)
         for i in range(len(query)):
             in_softmax = torch.matmul(query[i], key[i])
             out_softmax = self.cssoftmax(in_softmax)
-            Mc.append(out_softmax)     
-            out_softmax = torch.transpose(out_softmax, dim0=1, dim1=2)   
+            Mc.append(out_softmax)
+            out_softmax = torch.transpose(out_softmax, dim0=1, dim1=2)
             Zc_[i] = torch.matmul(Zc_[i], out_softmax)
         Zc_out = torch.cat(Zc_, dim=1)
         conv_in = Zc_out.view(Zc_out.size(0), Zc_out.size(1),
-                              int(math.sqrt(Zc_out.size(2))), int(math.sqrt(Zc_out.size(2)))) 
+                              int(math.sqrt(Zc_out.size(2))), int(math.sqrt(Zc_out.size(2))))
         out = self.convCSout(conv_in)
-        hc = self.csbnout(out)      
+        hc = self.csbnout(out)
         # ----------------CR模块----------------------
         out = self.convCR(hc)
         out = self.crbn(out)
-        A = self.CRtanh(out)     
+        A = self.CRtanh(out)
         A = A.view(A.size(0), A.size(1), A.size(2)*A.size(3))
         A = torch.chunk(A, c, dim=1)
         A = torch.cat(A, dim=2)
         H = hc.view(hc.size(0), hc.size(1), hc.size(2)*hc.size(3))
-        H = torch.chunk(H, c, dim=1) 
+        H = torch.chunk(H, c, dim=1)
         H = torch.cat(H, dim=2)
         H = torch.transpose(H, dim0=1, dim1=2)
         out = torch.matmul(A, H)
@@ -109,6 +146,7 @@ class VCRNet(nn.Module):
         Mchc = []
         Mc = torch.cat(Mc, dim=1)
         Mc_ = torch.div(Mc, torch.max(Mc))
+
         Mc_ = torch.chunk(Mc_, c, dim=1)
         hc_ = torch.chunk(hc_, c, dim=1)
         Mc_ = list(Mc_)
@@ -118,15 +156,19 @@ class VCRNet(nn.Module):
             Mchc.append(out)
         Mchc = torch.cat(Mchc, dim=1)
         Mchc = Mchc.view(Mchc.size(0), Mchc.size(1), int(math.sqrt(Mchc.size(2))), int(math.sqrt(Mchc.size(2))))
+
         alpha = self.convCMa(Mchc)
         beta = self.convCMb(Mchc)
+
         out = torch.mul(Zc, alpha)
         out = torch.add(out, beta)
         Xc_ = self.CMrelu(out)
         cm_out = torch.mul(Zc, Xc_)
         out = self.convVCR3(cm_out)
         OUT = self.bn3(out)
+
         result = torch.add(OUT, x)
+
         return result
 
 
@@ -186,6 +228,7 @@ class Bottleneck(nn.Module):
         self.bn3 = nn.BatchNorm2d(out_channel*self.expansion)
         self.relu = nn.ReLU(inplace=True)
 
+
         self.downsample = downsample
 
     def forward(self, x):
@@ -204,6 +247,7 @@ class Bottleneck(nn.Module):
         out = self.conv3(out)
         out = self.bn3(out)
 
+
         out += identity
         out = self.relu(out)
 
@@ -213,9 +257,9 @@ class Bottleneck(nn.Module):
 class ResNet(nn.Module):
 
     def __init__(self,
-                 block,                # 不同残差结构: basciblock (18/34层) 和 blockneck (50层以上)
-                 blocks_num,           # 残差结构数目: 如34层为 [3,4,6,3]
-                 num_classes=1000,     # 训练集分类个数
+                 block,
+                 blocks_num,
+                 num_classes=1000,
                  include_top=True,
                  groups=1,
                  width_per_group=64):
@@ -231,16 +275,21 @@ class ResNet(nn.Module):
         self.bn1 = nn.BatchNorm2d(self.in_channel)
         self.relu = nn.ReLU(inplace=True)
 
+        self.w = nn.Parameter(torch.Tensor([0.4, 0.6]), requires_grad=False)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(block, 64, blocks_num[0])
         self.layer2 = self._make_layer(block, 128, blocks_num[1], stride=2)
         self.layer3 = self._make_layer(block, 256, blocks_num[2], stride=2)
         self.layer4 = self._make_layer(block, 512, blocks_num[3], stride=2)
+
+        self.cbam = CBAMLayer(2048)          # 输入channel应与实际输入深度匹配
+        # self.conv_cbam = nn.Conv2d(256, 2048, groups=groups, kernel_size=8, stride=8)
         self.vcr = VCRNet()
+        # self.conv_up = nn.Conv2d(4096, 2048, groups=groups, kernel_size=1, stride=1)
         if self.include_top:
             self.avgpool = nn.AdaptiveAvgPool2d((1, 1))  # output size = (1, 1)
             self.fc = nn.Linear(512 * block.expansion, num_classes)
-
+            # self.fc = nn.Linear(1024 * block.expansion, num_classes)      # 对应concat融合
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
@@ -270,17 +319,26 @@ class ResNet(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, x):
+
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
+        # # ————————————1—————————————
         x = self.maxpool(x)
-
         x = self.layer1(x)
         x = self.layer2(x)
         x = self.layer3(x)
         x = self.layer4(x)
+        cbam = self.cbam.forward(x)
+        # cbam = self.conv_cbam(cbam)     # 上采样
+        # # ————————————2—————————————
         x = self.vcr.forward(x)
-
+        # x = torch.cat((x, cbam), 1)            # 1) concat融合
+        # x = self.conv_up(x)
+        # x = torch.add(cbam, x)                 # 2)特征相加
+        x = cbam * self.w[0] + x * self.w[1]     # 3)特征加权
+        # x = self.conv_up(x)
+        # # ————————————3—————————————
         if self.include_top:
             x = self.avgpool(x)
             x = torch.flatten(x, 1)
@@ -289,7 +347,8 @@ class ResNet(nn.Module):
         return x
 
 
-def vcrnet50(num_classes=1000, include_top=True):
+def resinet(num_classes=1000, include_top=True):
+    # resinet: Residual Semantic Reinforcement Network
     groups = 32
     width_per_group = 4
     return ResNet(Bottleneck, [3, 4, 6, 3],
@@ -297,5 +356,6 @@ def vcrnet50(num_classes=1000, include_top=True):
                   include_top=include_top,
                   groups=groups,
                   width_per_group=width_per_group)
+
 
 
